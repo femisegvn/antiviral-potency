@@ -1,7 +1,14 @@
 import pandas as pd
 import numpy as np
 import rdkit.Chem as Chem
-from typing import Tuple
+import matplotlib.pyplot as plt
+from matplotlib.gridspec import GridSpec
+from scipy.stats import gaussian_kde
+plt.rcParams["font.family"] = "Arial"
+
+#------------------------------------
+# DATA CLEANING
+#------------------------------------
 
 def canonicalise_smiles(smiles):
     '''
@@ -84,3 +91,79 @@ def merge_duplicates(df, smiles_col = "CXSMILES",
     out = df.groupby(smiles_col, as_index=False, dropna=False).agg(agg)
 
     return out
+
+
+#------------------------------------
+# DATA VISUALISATION
+#------------------------------------
+
+
+def plot_hist(df):
+
+    train_color = '#7920d3'
+    test_color = '#e69f00'
+
+    mers_col = "pIC50 (MERS-CoV Mpro)"
+    sars_col = "pIC50 (SARS-CoV-2 Mpro)"
+
+    endpoints = [(mers_col, "MERS-CoV Mpro"), (sars_col, "SARS-CoV-2 Mpro")]
+
+    fig = plt.figure(figsize=(12, 6))
+    gs = GridSpec(2, 2, height_ratios = [4, 1], hspace=0.05, wspace=0.25)
+
+    for i, (col, title) in enumerate(endpoints):
+        ax = fig.add_subplot(gs[0,i])
+        ax_box = fig.add_subplot(gs[1,i], sharex=ax)
+
+        train = df.loc[df["Set"].eq("Train"), col].dropna()
+        test  = df.loc[df["Set"].eq("Test"),  col].dropna()
+
+        all_vals = pd.concat([train, test], ignore_index=True)
+        bins = np.histogram_bin_edges(all_vals, bins=20)
+
+        ax.hist(train, bins=bins, alpha=0.6, label=f"Train (n = {len(train)})", density=True, color = train_color, edgecolor="black", linewidth=0.8)
+        ax.hist(test,  bins=bins, alpha=0.6, label=f"Test (n = {len(test)})", density=True, color = test_color, edgecolor="black", linewidth=0.8)
+
+        # KDE curves
+        x_min = np.min(np.r_[train, test])
+        x_max = np.max(np.r_[train, test])
+        x = np.linspace(x_min, x_max, 400)
+
+        kde_train = gaussian_kde(train)  # you can tune bandwidth; see below
+        kde_test  = gaussian_kde(test)
+
+        ax.plot(x, kde_train(x), linewidth=1, color = train_color)
+        ax.plot(x, kde_test(x),  linewidth=1, color = test_color)
+
+        ax.set_title(f"pIC50 distribution: {title}")
+        ax.set_ylabel("Density")
+        ax.legend()
+
+        plt.setp(ax.get_xticklabels(), visible=False)
+        ax.tick_params(axis="x", which="both", length=0)
+
+        bp = ax_box.boxplot(
+        [train, test],
+        vert=False,
+        labels=["Train", "Test"],
+        patch_artist=True,
+        showfliers=False)
+
+        for key in ["boxes", "whiskers", "caps", "medians"]:
+            for artist in bp[key]:
+                artist.set_color("black")
+                artist.set_linewidth(1.0)
+
+        if train_color is not None:
+            bp["boxes"][0].set_facecolor(train_color)
+            bp["boxes"][0].set_alpha(0.5)
+        if test_color is not None:
+            bp["boxes"][1].set_facecolor(test_color)
+            bp["boxes"][1].set_alpha(0.5)
+
+        ax_box.set_xlabel("pIC50")
+        ax_box.set_yticks([1, 2])
+        ax_box.set_yticklabels(["Train", "Test"])
+
+    plt.tight_layout()
+    plt.show()
