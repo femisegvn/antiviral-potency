@@ -26,6 +26,7 @@ def main(json=True, txt=True):
 
 dataset = [] # list of dict objects -- mirror of `data_dicts`
 
+# extracts dict objects from dataset.txt and appends to dataset list
 with open("./data/dataset.txt") as f:
     for line in f:
         data = json.loads(line.strip())
@@ -33,6 +34,6 @@ with open("./data/dataset.txt") as f:
 
 dataset_df = pd.DataFrame(dataset) # pandas dataframe of the dataset
 
-# only 
+
 if __name__ == '__main__':
     main()
