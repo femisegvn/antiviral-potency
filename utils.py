@@ -1,9 +1,11 @@
 import pandas as pd
 import numpy as np
-import rdkit.Chem as Chem
+from rdkit import Chem, DataStructs
+from rdkit.Chem import AllChem, rdFingerprintGenerator
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 from scipy.stats import gaussian_kde
+from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 plt.rcParams["font.family"] = "Arial"
 
 #------------------------------------
@@ -94,6 +96,26 @@ def merge_duplicates(df, smiles_col = "CXSMILES",
 
 
 #------------------------------------
+# MODEL DEVELOPMENT
+#------------------------------------
+
+def featurise(mols):
+    n_bits = 1024
+    radius = 3
+    morgan_gen = rdFingerprintGenerator.GetMorganGenerator(radius = radius, fpSize = n_bits, includeChirality = True)
+
+    X = np.zeros((len(mols), n_bits), dtype=np.float32)
+    for i, mol in enumerate(mols):
+        fp = morgan_gen.GetFingerprint(mol)
+        arr = np.zeros((n_bits,), dtype=np.int8)
+        DataStructs.ConvertToNumpyArray(fp, arr)
+        X[i, :] = arr
+
+    return X
+
+
+
+#------------------------------------
 # DATA VISUALISATION
 #------------------------------------
 
@@ -167,3 +189,30 @@ def plot_hist(df):
 
     plt.tight_layout()
     plt.show()
+
+def scatter_plot(y_test, pred):
+    mse = mean_squared_error(y_test, pred)
+    rmse = np.sqrt(mse)
+    mae  = mean_absolute_error(y_test, pred)
+    r2   = r2_score(y_test, pred)
+
+    plt.scatter(y_test, pred, marker = 'o', color='#593070', edgecolors='black', linewidths=0.5)
+
+    lims = [
+        min(min(y_test), min(pred)),  # min of both axes
+        max(max(y_test), max(pred))   # max of both axes
+    ]
+
+    plt.plot(lims, lims, 'k-', alpha=1, label = 'x = y', lw = 1) 
+    plt.title(f'N = {len(y_test)}')
+    plt.ylabel('Predicted')
+    plt.xlabel('Experimental')
+    plt.xlim(lims)
+    plt.ylim(lims)
+    plt.text(0.02,0.95,f"R² = {r2:.4f}",transform=plt.gca().transAxes, verticalalignment='top')
+    plt.text(0.02,0.90,f"MAE = {mae:.4f}",transform=plt.gca().transAxes, verticalalignment='top')
+    plt.text(0.02,0.85,f"MSE = {mse:.4f}",transform=plt.gca().transAxes, verticalalignment='top')
+    plt.text(0.02,0.80,f"RMSE = {rmse:.4f}",transform=plt.gca().transAxes, verticalalignment='top')
+
+    plt.legend()
+    plt.show() 
