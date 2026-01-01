@@ -220,7 +220,7 @@ def cross_validation(X, y, model = "xgboost", scaler = None, verbose = False):
         y_train, y_test = y[train_idx], y[test_idx]
 
         if model == "xgboost":
-            model = XGBRegressor()
+                model = XGBRegressor()
         elif model == "MLP":
             model = MLPRegressor(hidden_layer_sizes=(128,128), activation='relu', learning_rate="adaptive")
         
