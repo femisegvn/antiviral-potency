@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 from rdkit import Chem, DataStructs
-from rdkit.Chem import AllChem, rdFingerprintGenerator
+from rdkit.Chem import rdFingerprintGenerator, Descriptors
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 from scipy.stats import gaussian_kde
@@ -99,17 +99,40 @@ def merge_duplicates(df, smiles_col = "CXSMILES",
 # MODEL DEVELOPMENT
 #------------------------------------
 
-def featurise(mols):
-    n_bits = 1024
-    radius = 3
-    morgan_gen = rdFingerprintGenerator.GetMorganGenerator(radius = radius, fpSize = n_bits, includeChirality = True)
+def featurise(mols, scheme="morgan"):
 
-    X = np.zeros((len(mols), n_bits), dtype=np.float32)
-    for i, mol in enumerate(mols):
-        fp = morgan_gen.GetFingerprint(mol)
-        arr = np.zeros((n_bits,), dtype=np.int8)
-        DataStructs.ConvertToNumpyArray(fp, arr)
-        X[i, :] = arr
+    mols = [Chem.AddHs(mol) for mol in mols]
+
+    if scheme == "morgan":
+        n_bits = 1024
+        radius = 3
+        morgan_gen = rdFingerprintGenerator.GetMorganGenerator(radius = radius, fpSize = n_bits, includeChirality = True)
+
+        X = np.zeros((len(mols), n_bits), dtype=np.float32)
+        for i, mol in enumerate(mols):
+            fp = morgan_gen.GetFingerprint(mol)
+            arr = np.zeros((n_bits,), dtype=np.int8)
+            DataStructs.ConvertToNumpyArray(fp, arr)
+            X[i, :] = arr
+
+    elif scheme == "rdkit_desc":
+        X = []
+
+        for mol in mols:
+            x = []
+            x.append(Descriptors.MolWt(mol))
+            x.append(Descriptors.TPSA(mol))
+            x.append(Descriptors.NumHAcceptors(mol))
+            x.append(Descriptors.NumHDonors(mol))
+            x.append(Chem.Crippen.MolLogP(mol))
+
+            X.append(np.array(x))
+
+        X = np.array(X)
+
+    elif scheme == "rdkit_desc2":
+        ...
+
 
     return X
 
@@ -120,13 +143,10 @@ def featurise(mols):
 #------------------------------------
 
 
-def plot_hist(df):
+def hist_plot(df, mers_col = "pIC50 (MERS-CoV Mpro)", sars_col = "pIC50 (SARS-CoV-2 Mpro)"):
 
     train_color = '#7920d3'
     test_color = '#e69f00'
-
-    mers_col = "pIC50 (MERS-CoV Mpro)"
-    sars_col = "pIC50 (SARS-CoV-2 Mpro)"
 
     endpoints = [(mers_col, "MERS-CoV Mpro"), (sars_col, "SARS-CoV-2 Mpro")]
 
@@ -211,7 +231,6 @@ def scatter_plot(y_test, pred):
     plt.ylim(lims)
     plt.text(0.02,0.95,f"R² = {r2:.4f}",transform=plt.gca().transAxes, verticalalignment='top')
     plt.text(0.02,0.90,f"MAE = {mae:.4f}",transform=plt.gca().transAxes, verticalalignment='top')
-    plt.text(0.02,0.85,f"MSE = {mse:.4f}",transform=plt.gca().transAxes, verticalalignment='top')
     plt.text(0.02,0.80,f"RMSE = {rmse:.4f}",transform=plt.gca().transAxes, verticalalignment='top')
 
     plt.legend()
