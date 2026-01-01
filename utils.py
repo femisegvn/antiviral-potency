@@ -105,13 +105,11 @@ def merge_duplicates(df, smiles_col = "CXSMILES",
 
 
 
-def featurise(mols, scheme="morgan_fp"):
+def featurise(mols, scheme="morgan_fp", omit=None):
 
     mols = [Chem.AddHs(mol) for mol in mols]
 
-    if scheme == "morgan_fp":
-        n_bits = 1024
-        radius = 3
+    def morgan_featuriser(mols, n_bits = 1024, radius = 3):
         morgan_gen = rdFingerprintGenerator.GetMorganGenerator(radius = radius, fpSize = n_bits, includeChirality = True)
 
         X = np.zeros((len(mols), n_bits), dtype=np.float32)
@@ -120,8 +118,9 @@ def featurise(mols, scheme="morgan_fp"):
             arr = np.zeros((n_bits,), dtype=np.int8)
             DataStructs.ConvertToNumpyArray(fp, arr)
             X[i, :] = arr
-
-    elif scheme == "rdkit_desc":
+        return X
+    
+    def rdkit_desc_featuriser(mols):
         X = []
 
         for mol in mols:
@@ -140,8 +139,9 @@ def featurise(mols, scheme="morgan_fp"):
             X.append(np.array(x))
 
         X = np.array(X)
-
-    elif scheme == "rdkit_frags":
+        return X
+    
+    def rdkit_frags_featuriser(mols):
         X = []
         fragments = ["fr_Al_COO", "fr_Al_OH", "fr_Al_OH_noTert", "fr_ArN", "fr_Ar_COO",
                      "fr_Ar_N", "fr_Ar_NH", "fr_Ar_OH", "fr_COO", "fr_COO2", "fr_C_O",
@@ -169,9 +169,40 @@ def featurise(mols, scheme="morgan_fp"):
             X.append(np.array(x))
 
         X = np.array(X)
+        return X
+
+    def hybrid_featuriser(mols, omit=omit):
+        Xs = []
+
+        if not omit == "morgan":
+            X_fp = morgan_featuriser(mols)
+            Xs.append(X_fp)
+        
+        if not omit == "rdkit_desc":
+            X_desc = rdkit_desc_featuriser(mols)
+            Xs.append(X_desc)
+        
+        if not omit == "rdkit_frags":
+            X_frags = rdkit_frags_featuriser(mols)
+            Xs.append(X_frags)
+
+
+        X_hybrid = np.concatenate(Xs, axis=1)
+        return X_hybrid
+
+    if scheme == "morgan_fp":
+        X = morgan_featuriser(mols)
+
+    elif scheme == "rdkit_desc":
+        X = rdkit_desc_featuriser(mols)
+
+    elif scheme == "rdkit_frags":
+        X = rdkit_frags_featuriser(mols)
+
+    elif scheme == "hybrid":
+        X = hybrid_featuriser(mols)
 
     return X
-
 
 
 def cross_validation(X, y, model = "xgboost", scaler = None, verbose = False):
@@ -197,7 +228,7 @@ def cross_validation(X, y, model = "xgboost", scaler = None, verbose = False):
         
         pred = model.predict(X_test)
         if scaler:
-            # inverse the scaler before determining correlation and error metrics
+            # inverse the scaler
             pred = scaler.inverse_transform(pred.reshape(-1, 1))
             y_test = scaler.inverse_transform(y_test.reshape(-1, 1))
         
@@ -357,10 +388,10 @@ def bar_plot(mers_results: pd.DataFrame, sars_results: pd.DataFrame):
                 errorbar = 'sd', ax = axes[1,1], edgecolor = 'black', linewidth=1, alpha=0.8, err_kws={"linewidth": 0.8},
                 capsize=0.2)
 
-    axes[0, 0].set_title("pIC50 MERS: R²")
-    axes[0, 1].set_title("pIC50 SARS: R²")
-    axes[1, 0].set_title("pIC50 MERS: MAE")
-    axes[1, 1].set_title("pIC50 SARS: MAE")
+    axes[0, 0].set_title("pIC50 MERS: CV R²")
+    axes[0, 1].set_title("pIC50 SARS: CV R²")
+    axes[1, 0].set_title("pIC50 MERS: CV MAE")
+    axes[1, 1].set_title("pIC50 SARS: CV MAE")
 
     for ax in axes.flat:
         ax.set_xlabel("")
