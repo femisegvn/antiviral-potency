@@ -4,6 +4,7 @@ from rdkit import Chem, DataStructs
 from rdkit.Chem import rdFingerprintGenerator, Descriptors
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
+import seaborn as sns
 from scipy.stats import gaussian_kde
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 from sklearn.model_selection import RepeatedKFold
@@ -104,11 +105,11 @@ def merge_duplicates(df, smiles_col = "CXSMILES",
 
 
 
-def featurise(mols, scheme="morgan"):
+def featurise(mols, scheme="morgan_fp"):
 
     mols = [Chem.AddHs(mol) for mol in mols]
 
-    if scheme == "morgan":
+    if scheme == "morgan_fp":
         n_bits = 1024
         radius = 3
         morgan_gen = rdFingerprintGenerator.GetMorganGenerator(radius = radius, fpSize = n_bits, includeChirality = True)
@@ -173,7 +174,7 @@ def featurise(mols, scheme="morgan"):
 
 
 
-def cross_validation(X, y, model = "xgboost", scaler = None):
+def cross_validation(X, y, model = "xgboost", scaler = None, verbose = False):
     '''
     Conducts a 5x5 CV protocol on inputs X and y
     '''
@@ -207,14 +208,16 @@ def cross_validation(X, y, model = "xgboost", scaler = None):
 
         fold_metrics.append({"fold": fold, "rmse": rmse, "mae": mae, "r2": r2})
 
-    rmses = np.array([m["rmse"] for m in fold_metrics])
-    maes  = np.array([m["mae"]  for m in fold_metrics])
-    r2s   = np.array([m["r2"]   for m in fold_metrics])
+    
+    if verbose:
+        rmses = np.array([m["rmse"] for m in fold_metrics])
+        maes  = np.array([m["mae"]  for m in fold_metrics])
+        r2s   = np.array([m["r2"]   for m in fold_metrics])
 
-    print(f"5x5 CV Results:")
-    print(f"R^2 : mean={r2s.mean():.3f}  std={r2s.std(ddof=1):.3f}")
-    print(f"MAE : mean={maes.mean():.3f}  std={maes.std(ddof=1):.3f}")
-    print(f"RMSE: mean={rmses.mean():.3f}  std={rmses.std(ddof=1):.3f}")
+        print(f"5x5 CV Results:")
+        print(f"R^2 : mean={r2s.mean():.3f}  std={r2s.std(ddof=1):.3f}")
+        print(f"MAE : mean={maes.mean():.3f}  std={maes.std(ddof=1):.3f}")
+        print(f"RMSE: mean={rmses.mean():.3f}  std={rmses.std(ddof=1):.3f}")
 
     return fold_metrics
 
@@ -333,4 +336,43 @@ def scatter_plot(y_test, pred):
     plt.text(0.02,0.85,f"RMSE = {rmse:.3f}",transform=plt.gca().transAxes, verticalalignment='top')
 
     plt.legend()
-    plt.show() 
+    plt.show()
+
+def bar_plot(mers_results: pd.DataFrame, sars_results: pd.DataFrame):
+    fig, axes = plt.subplots(2, 2, figsize = (10, 6), constrained_layout = True)
+
+    sns.barplot(data = mers_results, x = "scheme", y="r2", hue="model",palette = ["#7920d3",'#e69f00'],
+                errorbar = 'sd', ax = axes[0, 0], edgecolor = 'black', linewidth=1, alpha=0.8, err_kws={"linewidth": 0.8},
+                capsize=0.2)
+
+    sns.barplot(data = mers_results, x = "scheme", y="mae", hue="model",palette = ["#7920d3",'#e69f00'], 
+                errorbar = 'sd', ax = axes[1,0], edgecolor = 'black', linewidth=1, alpha=0.8, err_kws={"linewidth": 0.8},
+                capsize=0.2)
+
+    sns.barplot(data = sars_results, x = "scheme", y="r2", hue="model",palette = ["#7920d3",'#e69f00'], 
+                errorbar = 'sd', ax = axes[0, 1], edgecolor = 'black', linewidth=1, alpha=0.8, err_kws={"linewidth": 0.8},
+                capsize=0.2)
+
+    sns.barplot(data = sars_results, x = "scheme", y="mae", hue="model",palette = ["#7920d3",'#e69f00'], 
+                errorbar = 'sd', ax = axes[1,1], edgecolor = 'black', linewidth=1, alpha=0.8, err_kws={"linewidth": 0.8},
+                capsize=0.2)
+
+    axes[0, 0].set_title("pIC50 MERS: R²")
+    axes[0, 1].set_title("pIC50 SARS: R²")
+    axes[1, 0].set_title("pIC50 MERS: MAE")
+    axes[1, 1].set_title("pIC50 SARS: MAE")
+
+    for ax in axes.flat:
+        ax.set_xlabel("")
+        ax.tick_params(axis="x")
+
+    handles, labels = axes[0, 0].get_legend_handles_labels()
+    for ax in axes.flat:
+        leg = ax.get_legend()
+        if leg is not None:
+            leg.remove()
+
+
+    fig.legend(handles, labels, title="Model", loc=(0.95,0.8))
+
+    plt.show()
