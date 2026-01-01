@@ -6,6 +6,9 @@ import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 from scipy.stats import gaussian_kde
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+from sklearn.model_selection import RepeatedKFold
+from xgboost import XGBRegressor
+from sklearn.neural_network import MLPRegressor
 plt.rcParams["font.family"] = "Arial"
 
 #------------------------------------
@@ -99,6 +102,8 @@ def merge_duplicates(df, smiles_col = "CXSMILES",
 # MODEL DEVELOPMENT
 #------------------------------------
 
+
+
 def featurise(mols, scheme="morgan"):
 
     mols = [Chem.AddHs(mol) for mol in mols]
@@ -125,17 +130,111 @@ def featurise(mols, scheme="morgan"):
             x.append(Descriptors.NumHAcceptors(mol))
             x.append(Descriptors.NumHDonors(mol))
             x.append(Chem.Crippen.MolLogP(mol))
-
+            x.append(Descriptors.NumValenceElectrons(mol))
+            x.append(Descriptors.MaxPartialCharge(mol))
+            x.append(Descriptors.MinPartialCharge(mol))
+            x.append(Descriptors.MaxAbsEStateIndex(mol))
+            x.append(Descriptors.MinAbsEStateIndex(mol))
+            
             X.append(np.array(x))
 
         X = np.array(X)
 
-    elif scheme == "rdkit_desc2":
-        ...
+    elif scheme == "rdkit_frags":
+        X = []
+        fragments = ["fr_Al_COO", "fr_Al_OH", "fr_Al_OH_noTert", "fr_ArN", "fr_Ar_COO",
+                     "fr_Ar_N", "fr_Ar_NH", "fr_Ar_OH", "fr_COO", "fr_COO2", "fr_C_O",
+                     "fr_C_O_noCOO", "fr_C_S", "fr_HOCCN", "fr_Imine", "fr_NH0", "fr_NH1",
+                     "fr_NH2", "fr_N_O", "fr_Ndealkylation1", "fr_Ndealkylation2", "fr_Nhpyrrole",
+                     "fr_SH", "fr_aldehyde", "fr_alkyl_carbamate", "fr_alkyl_halide", "fr_allylic_oxid",
+                     "fr_amide", "fr_amidine", "fr_aniline", "fr_aryl_methyl", "fr_azide", "fr_azo",
+                     "fr_barbitur", "fr_benzene", "fr_benzodiazepine", "fr_bicyclic", "fr_diazo",
+                     "fr_dihydropyridine", "fr_epoxide", "fr_ester", "fr_ether", "fr_furan", "fr_guanido",
+                     "fr_halogen", "fr_hdrzine", "fr_hdrzone", "fr_imidazole", "fr_imide", "fr_isocyan",
+                     "fr_isothiocyan", "fr_ketone", "fr_ketone_Topliss", "fr_lactam", "fr_lactone", "fr_methoxy",
+                     "fr_morpholine", "fr_nitrile", "fr_nitro", "fr_nitro_arom", "fr_nitro_arom_nonortho",
+                     "fr_nitroso", "fr_oxazole", "fr_oxime", "fr_para_hydroxylation", "fr_phenol",
+                     "fr_phenol_noOrthoHbond", "fr_phos_acid", "fr_phos_ester", "fr_piperdine", "fr_piperzin"
+                     "", "fr_priamide", "fr_prisulfonamd", "fr_pyridine", "fr_quatN", "fr_sulfide", "fr_sulfonamd",
+                     "fr_sulfone", "fr_term_acetylene", "fr_tetrazole", "fr_thiazole", "fr_thiocyan",
+                     "fr_thiophene", "fr_unbrch_alkane", "fr_urea"]
+        
+        for mol in mols:
+            x = []
+            for desc, value in Descriptors.CalcMolDescriptors(mol).items():
+                if desc in fragments:
+                    x.append(value)
+            
+            X.append(np.array(x))
 
+        X = np.array(X)
 
     return X
 
+
+
+def cross_validation(X, y, model = "xgboost", scaler = None):
+    '''
+    Conducts a 5x5 CV protocol on inputs X and y
+    '''
+
+    rkf = RepeatedKFold(n_splits = 5, n_repeats = 5, random_state = 0)
+
+    fold_metrics = []
+
+    for fold, idx in enumerate(rkf.split(X), start=1):
+        train_idx, test_idx = idx
+        X_train, X_test = X[train_idx], X[test_idx]
+        y_train, y_test = y[train_idx], y[test_idx]
+
+        if model == "xgboost":
+            model = XGBRegressor()
+        elif model == "MLP":
+            model = MLPRegressor(hidden_layer_sizes=(128,128), activation='relu', learning_rate="adaptive")
+        
+        model.fit(X_train, y_train)
+        
+        pred = model.predict(X_test)
+        if scaler:
+            # inverse the scaler before determining correlation and error metrics
+            pred = scaler.inverse_transform(pred.reshape(-1, 1))
+            y_test = scaler.inverse_transform(y_test.reshape(-1, 1))
+        
+        mse = mean_squared_error(y_test, pred)
+        rmse = np.sqrt(mse)
+        mae  = mean_absolute_error(y_test, pred)
+        r2   = r2_score(y_test, pred)
+
+        fold_metrics.append({"fold": fold, "rmse": rmse, "mae": mae, "r2": r2})
+
+    rmses = np.array([m["rmse"] for m in fold_metrics])
+    maes  = np.array([m["mae"]  for m in fold_metrics])
+    r2s   = np.array([m["r2"]   for m in fold_metrics])
+
+    print(f"5x5 CV Results:")
+    print(f"R^2 : mean={r2s.mean():.3f}  std={r2s.std(ddof=1):.3f}")
+    print(f"MAE : mean={maes.mean():.3f}  std={maes.std(ddof=1):.3f}")
+    print(f"RMSE: mean={rmses.mean():.3f}  std={rmses.std(ddof=1):.3f}")
+
+    return fold_metrics
+
+
+def test_model(X_train, X_test, y_train, y_test, model = "xgboost", scaler=None):
+    if model == "xgboost":
+        model = XGBRegressor()
+    elif model == "MLP":
+        model = MLPRegressor(hidden_layer_sizes=(128,128), activation='relu', learning_rate="adaptive")
+
+    model.fit(X_train, y_train)
+    pred = model.predict(X_test)
+
+    if scaler:
+        # inverse the scaler
+        pred = scaler.inverse_transform(pred.reshape(-1, 1))
+        test = scaler.inverse_transform(y_test.reshape(-1, 1))
+
+    
+    return test, pred
 
 
 #------------------------------------
@@ -225,13 +324,13 @@ def scatter_plot(y_test, pred):
 
     plt.plot(lims, lims, 'k-', alpha=1, label = 'x = y', lw = 1) 
     plt.title(f'N = {len(y_test)}')
-    plt.ylabel('Predicted')
-    plt.xlabel('Experimental')
+    plt.ylabel('Predicted pIC50 (-Log[mol/L])')
+    plt.xlabel('Experimental pIC50 (-Log[mol/L])')
     plt.xlim(lims)
     plt.ylim(lims)
-    plt.text(0.02,0.95,f"R² = {r2:.4f}",transform=plt.gca().transAxes, verticalalignment='top')
-    plt.text(0.02,0.90,f"MAE = {mae:.4f}",transform=plt.gca().transAxes, verticalalignment='top')
-    plt.text(0.02,0.80,f"RMSE = {rmse:.4f}",transform=plt.gca().transAxes, verticalalignment='top')
+    plt.text(0.02,0.95,f"R² = {r2:.3f}",transform=plt.gca().transAxes, verticalalignment='top')
+    plt.text(0.02,0.90,f"MAE = {mae:.3f}",transform=plt.gca().transAxes, verticalalignment='top')
+    plt.text(0.02,0.85,f"RMSE = {rmse:.3f}",transform=plt.gca().transAxes, verticalalignment='top')
 
     plt.legend()
     plt.show() 
