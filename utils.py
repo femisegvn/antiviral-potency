@@ -1,13 +1,15 @@
 import pandas as pd
 import numpy as np
 from rdkit import Chem, DataStructs
-from rdkit.Chem import rdFingerprintGenerator, Descriptors
+from rdkit.Chem import rdFingerprintGenerator, Descriptors, rdMolDescriptors, QED
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 import seaborn as sns
 from scipy.stats import gaussian_kde
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 from sklearn.model_selection import RepeatedKFold
+from sklearn.preprocessing import MaxAbsScaler
+from sklearn.feature_selection import SelectKBest, f_regression
 from xgboost import XGBRegressor
 from sklearn.neural_network import MLPRegressor
 plt.rcParams["font.family"] = "Arial"
@@ -125,20 +127,23 @@ def featurise(mols, scheme="morgan_fp", omit=None):
 
         for mol in mols:
             x = []
+
+            x.append(QED.qed(mol))
             x.append(Descriptors.MolWt(mol))
-            x.append(Descriptors.TPSA(mol))
-            x.append(Descriptors.NumHAcceptors(mol))
-            x.append(Descriptors.NumHDonors(mol))
-            x.append(Chem.Crippen.MolLogP(mol))
             x.append(Descriptors.NumValenceElectrons(mol))
-            x.append(Descriptors.MaxPartialCharge(mol))
-            x.append(Descriptors.MinPartialCharge(mol))
-            x.append(Descriptors.MaxAbsEStateIndex(mol))
-            x.append(Descriptors.MinAbsEStateIndex(mol))
+            x.append(Descriptors.BertzCT(mol)) #bertzct
+            x.append(Descriptors.Chi0v(mol)) #Chi0v
+            x.append(Descriptors.Kappa1(mol)) #Kappa1
+            x.append(Descriptors.LabuteASA(mol))
+            x.append(Descriptors.SMR_VSA10(mol))
+            x.append(Descriptors.EState_VSA3(mol))
+            x.append(Descriptors.NumHeteroatoms(mol)) #Numheteroatoms
+            x.append(Chem.Crippen.MolMR(mol))
             
             X.append(np.array(x))
 
         X = np.array(X)
+
         return X
     
     def rdkit_frags_featuriser(mols):
@@ -204,8 +209,63 @@ def featurise(mols, scheme="morgan_fp", omit=None):
 
     return X
 
+def rdkit_all_desc_featuriser(mols):
+    X = []
+    for mol in mols:
+        x = []
+        descriptors = Descriptors.CalcMolDescriptors(mol)
 
-def cross_validation(X, y, model = "xgboost", scaler = None, verbose = False):
+        for desc in descriptors.items():
+            key, value = desc
+
+            if not key.startswith("fr"):
+                x.append(value)
+        X.append(np.array(x))
+    X = np.array(X)
+    return X
+
+def get_desc_names():
+    
+    s = 'C'
+    mol = Chem.MolFromSmiles(s)
+
+    descriptors = []
+    for desc in Descriptors.CalcMolDescriptors(mol).items():
+        key, value = desc
+        if not key.startswith("fr_"):
+            descriptors.append(key)
+
+    return descriptors
+
+def select_features(X, y, k = 30):
+    '''
+    Selects k most relevant features in X linked to y
+    '''
+    selector = SelectKBest(f_regression, k = 30)
+    selector.fit_transform(X, y)
+
+    X_sel = selector.transform(X)
+
+    idx = selector.get_support(indices = True)
+
+    descriptors = get_desc_names()
+
+    selected_descriptors = [descriptors[i] for i in idx]
+    f_scores = selector.scores_[idx]
+    p_values = selector.pvalues_[idx]
+
+    selection_report = []
+    for desc, f_score, p_value in zip(selected_descriptors, f_scores, p_values):
+        selection_report.append({"Descriptor": desc,
+                                  "F-Score": f_score,
+                                  "p-value": p_value})
+
+    
+    return X_sel, selection_report
+
+
+
+def cross_validation(X, y, model = "xgboost", endpoint_scaler = None, verbose = False):
     '''
     Conducts a 5x5 CV protocol on inputs X and y
     '''
@@ -219,41 +279,49 @@ def cross_validation(X, y, model = "xgboost", scaler = None, verbose = False):
         X_train, X_test = X[train_idx], X[test_idx]
         y_train, y_test = y[train_idx], y[test_idx]
 
+        feature_scaler = MaxAbsScaler()
+        X_train = feature_scaler.fit_transform(X_train)
+        X_test = feature_scaler.transform(X_test)
+
         if model == "xgboost":
-                model = XGBRegressor()
+            model = XGBRegressor()
         elif model == "MLP":
             model = MLPRegressor(hidden_layer_sizes=(128,128), activation='relu', learning_rate="adaptive")
         
         model.fit(X_train, y_train)
         
         pred = model.predict(X_test)
-        if scaler:
+        if endpoint_scaler:
             # inverse the scaler
-            pred = scaler.inverse_transform(pred.reshape(-1, 1))
-            y_test = scaler.inverse_transform(y_test.reshape(-1, 1))
+            pred = endpoint_scaler.inverse_transform(pred.reshape(-1, 1))
+            y_test = endpoint_scaler.inverse_transform(y_test.reshape(-1, 1))
         
         mse = mean_squared_error(y_test, pred)
-        rmse = np.sqrt(mse)
         mae  = mean_absolute_error(y_test, pred)
         r2   = r2_score(y_test, pred)
 
-        fold_metrics.append({"fold": fold, "rmse": rmse, "mae": mae, "r2": r2})
+        fold_metrics.append({"fold": fold, "mse": mse, "mae": mae, "r2": r2})
 
     
     if verbose:
-        rmses = np.array([m["rmse"] for m in fold_metrics])
+        mses = np.array([m["mse"] for m in fold_metrics])
         maes  = np.array([m["mae"]  for m in fold_metrics])
         r2s   = np.array([m["r2"]   for m in fold_metrics])
 
         print(f"5x5 CV Results:")
         print(f"R^2 : mean={r2s.mean():.3f}  std={r2s.std(ddof=1):.3f}")
         print(f"MAE : mean={maes.mean():.3f}  std={maes.std(ddof=1):.3f}")
-        print(f"RMSE: mean={rmses.mean():.3f}  std={rmses.std(ddof=1):.3f}")
+        print(f"MSE: mean={mses.mean():.3f}  std={mses.std(ddof=1):.3f}")
 
     return fold_metrics
 
 
-def test_model(X_train, X_test, y_train, y_test, model = "xgboost", scaler=None):
+def test_model(X_train, X_test, y_train, y_test, model = "xgboost", endpoint_scaler=None):
+
+    feature_scaler = MaxAbsScaler()
+    X_train = feature_scaler.fit_transform(X_train)
+    X_test = feature_scaler.transform(X_test)
+
     if model == "xgboost":
         model = XGBRegressor()
     elif model == "MLP":
@@ -262,10 +330,10 @@ def test_model(X_train, X_test, y_train, y_test, model = "xgboost", scaler=None)
     model.fit(X_train, y_train)
     pred = model.predict(X_test)
 
-    if scaler:
-        # inverse the scaler
-        pred = scaler.inverse_transform(pred.reshape(-1, 1))
-        test = scaler.inverse_transform(y_test.reshape(-1, 1))
+    if endpoint_scaler:
+        # inverse the endpoint scaler
+        pred = endpoint_scaler.inverse_transform(pred.reshape(-1, 1))
+        test = endpoint_scaler.inverse_transform(y_test.reshape(-1, 1))
 
     
     return test, pred
@@ -343,13 +411,12 @@ def hist_plot(df, mers_col = "pIC50 (MERS-CoV Mpro)", sars_col = "pIC50 (SARS-Co
     plt.tight_layout()
     plt.show()
 
-def scatter_plot(y_test, pred):
+def scatter_plot(y_test, pred, save_to=None, title: str = None):
     mse = mean_squared_error(y_test, pred)
-    rmse = np.sqrt(mse)
     mae  = mean_absolute_error(y_test, pred)
     r2   = r2_score(y_test, pred)
 
-    plt.scatter(y_test, pred, marker = 'o', color='#593070', edgecolors='black', linewidths=0.5)
+    plt.scatter(y_test, pred, marker = 'o', color='#7920d3', edgecolors='black', linewidths=0.5)
 
     lims = [
         min(min(y_test), min(pred)),  # min of both axes
@@ -357,19 +424,23 @@ def scatter_plot(y_test, pred):
     ]
 
     plt.plot(lims, lims, 'k-', alpha=1, label = 'x = y', lw = 1) 
-    plt.title(f'N = {len(y_test)}')
+    if title:
+        plt.title(f'{title}')
     plt.ylabel('Predicted pIC50 (-Log[mol/L])')
     plt.xlabel('Experimental pIC50 (-Log[mol/L])')
     plt.xlim(lims)
     plt.ylim(lims)
     plt.text(0.02,0.95,f"R² = {r2:.3f}",transform=plt.gca().transAxes, verticalalignment='top')
     plt.text(0.02,0.90,f"MAE = {mae:.3f}",transform=plt.gca().transAxes, verticalalignment='top')
-    plt.text(0.02,0.85,f"RMSE = {rmse:.3f}",transform=plt.gca().transAxes, verticalalignment='top')
+    plt.text(0.02,0.85,f"MSE = {mse:.3f}",transform=plt.gca().transAxes, verticalalignment='top')
 
     plt.legend()
+    if save_to:
+        plt.savefig(f"{save_to}")
+
     plt.show()
 
-def bar_plot(mers_results: pd.DataFrame, sars_results: pd.DataFrame):
+def bar_plot(mers_results: pd.DataFrame, sars_results: pd.DataFrame, save_to: str = None):
     fig, axes = plt.subplots(2, 2, figsize = (10, 6), constrained_layout = True)
 
     sns.barplot(data = mers_results, x = "scheme", y="r2", hue="model",palette = ["#7920d3",'#e69f00'],
@@ -405,5 +476,8 @@ def bar_plot(mers_results: pd.DataFrame, sars_results: pd.DataFrame):
 
 
     fig.legend(handles, labels, title="Model", loc=(0.95,0.8))
+
+    if save_to:
+        plt.savefig(f"{save_to}")
 
     plt.show()
