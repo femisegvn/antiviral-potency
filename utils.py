@@ -105,7 +105,44 @@ def merge_duplicates(df, smiles_col = "CXSMILES",
 # MODEL DEVELOPMENT
 #------------------------------------
 
+def get_desc_names():
+    
+    s = 'C'
+    mol = Chem.MolFromSmiles(s)
 
+    descriptors = []
+    for desc in Descriptors.CalcMolDescriptors(mol).items():
+        key, value = desc
+        if not key.startswith("fr_"):
+            descriptors.append(key)
+
+    return descriptors
+
+def get_frag_names():
+    s = 'C'
+    mol = Chem.MolFromSmiles(s)
+    fragments = []
+    for desc in Descriptors.CalcMolDescriptors(mol).items():
+        key, value = desc
+        if key.startswith("fr_"):
+            fragments.append(key)
+
+    return fragments
+
+def rdkit_all_desc_featuriser(mols):
+    X = []
+    for mol in mols:
+        x = []
+        descriptors = Descriptors.CalcMolDescriptors(mol)
+
+        for desc in descriptors.items():
+            key, value = desc
+
+            if not key.startswith("fr"):
+                x.append(value)
+        X.append(np.array(x))
+    X = np.array(X)
+    return X
 
 def featurise(mols, scheme="morgan_fp", omit=None):
 
@@ -131,13 +168,13 @@ def featurise(mols, scheme="morgan_fp", omit=None):
             x.append(QED.qed(mol))
             x.append(Descriptors.MolWt(mol))
             x.append(Descriptors.NumValenceElectrons(mol))
-            x.append(Descriptors.BertzCT(mol)) #bertzct
-            x.append(Descriptors.Chi0v(mol)) #Chi0v
-            x.append(Descriptors.Kappa1(mol)) #Kappa1
+            x.append(Descriptors.BertzCT(mol))
+            x.append(Descriptors.Chi0v(mol))
+            x.append(Descriptors.Kappa1(mol))
             x.append(Descriptors.LabuteASA(mol))
             x.append(Descriptors.SMR_VSA10(mol))
             x.append(Descriptors.EState_VSA3(mol))
-            x.append(Descriptors.NumHeteroatoms(mol)) #Numheteroatoms
+            x.append(Descriptors.NumHeteroatoms(mol))
             x.append(Chem.Crippen.MolMR(mol))
             
             X.append(np.array(x))
@@ -148,22 +185,7 @@ def featurise(mols, scheme="morgan_fp", omit=None):
     
     def rdkit_frags_featuriser(mols):
         X = []
-        fragments = ["fr_Al_COO", "fr_Al_OH", "fr_Al_OH_noTert", "fr_ArN", "fr_Ar_COO",
-                     "fr_Ar_N", "fr_Ar_NH", "fr_Ar_OH", "fr_COO", "fr_COO2", "fr_C_O",
-                     "fr_C_O_noCOO", "fr_C_S", "fr_HOCCN", "fr_Imine", "fr_NH0", "fr_NH1",
-                     "fr_NH2", "fr_N_O", "fr_Ndealkylation1", "fr_Ndealkylation2", "fr_Nhpyrrole",
-                     "fr_SH", "fr_aldehyde", "fr_alkyl_carbamate", "fr_alkyl_halide", "fr_allylic_oxid",
-                     "fr_amide", "fr_amidine", "fr_aniline", "fr_aryl_methyl", "fr_azide", "fr_azo",
-                     "fr_barbitur", "fr_benzene", "fr_benzodiazepine", "fr_bicyclic", "fr_diazo",
-                     "fr_dihydropyridine", "fr_epoxide", "fr_ester", "fr_ether", "fr_furan", "fr_guanido",
-                     "fr_halogen", "fr_hdrzine", "fr_hdrzone", "fr_imidazole", "fr_imide", "fr_isocyan",
-                     "fr_isothiocyan", "fr_ketone", "fr_ketone_Topliss", "fr_lactam", "fr_lactone", "fr_methoxy",
-                     "fr_morpholine", "fr_nitrile", "fr_nitro", "fr_nitro_arom", "fr_nitro_arom_nonortho",
-                     "fr_nitroso", "fr_oxazole", "fr_oxime", "fr_para_hydroxylation", "fr_phenol",
-                     "fr_phenol_noOrthoHbond", "fr_phos_acid", "fr_phos_ester", "fr_piperdine", "fr_piperzin"
-                     "", "fr_priamide", "fr_prisulfonamd", "fr_pyridine", "fr_quatN", "fr_sulfide", "fr_sulfonamd",
-                     "fr_sulfone", "fr_term_acetylene", "fr_tetrazole", "fr_thiazole", "fr_thiocyan",
-                     "fr_thiophene", "fr_unbrch_alkane", "fr_urea"]
+        fragments = get_frag_names()
         
         for mol in mols:
             x = []
@@ -209,33 +231,6 @@ def featurise(mols, scheme="morgan_fp", omit=None):
 
     return X
 
-def rdkit_all_desc_featuriser(mols):
-    X = []
-    for mol in mols:
-        x = []
-        descriptors = Descriptors.CalcMolDescriptors(mol)
-
-        for desc in descriptors.items():
-            key, value = desc
-
-            if not key.startswith("fr"):
-                x.append(value)
-        X.append(np.array(x))
-    X = np.array(X)
-    return X
-
-def get_desc_names():
-    
-    s = 'C'
-    mol = Chem.MolFromSmiles(s)
-
-    descriptors = []
-    for desc in Descriptors.CalcMolDescriptors(mol).items():
-        key, value = desc
-        if not key.startswith("fr_"):
-            descriptors.append(key)
-
-    return descriptors
 
 def select_features(X, y, k = 30):
     '''
@@ -346,16 +341,23 @@ def test_model(X_train, X_test, y_train, y_test, model = "xgboost", endpoint_sca
 
 def hist_plot(df, mers_col = "pIC50 (MERS-CoV Mpro)", sars_col = "pIC50 (SARS-CoV-2 Mpro)"):
 
-    train_color = '#7920d3'
-    test_color = '#e69f00'
+    train_color = '#7920d3bb'
+    test_color = '#e69f00bb'
 
     endpoints = [(mers_col, "MERS-CoV Mpro"), (sars_col, "SARS-CoV-2 Mpro")]
 
     fig = plt.figure(figsize=(12, 6))
     gs = GridSpec(2, 2, height_ratios = [4, 1], hspace=0.05, wspace=0.25)
 
+    ax0 = None
+
     for i, (col, title) in enumerate(endpoints):
-        ax = fig.add_subplot(gs[0,i])
+        if ax0 is None:
+            ax = fig.add_subplot(gs[0,i])
+            ax0 = ax
+        else:
+            ax = fig.add_subplot(gs[0,i], sharey = ax0)
+
         ax_box = fig.add_subplot(gs[1,i], sharex=ax)
 
         train = df.loc[df["Set"].eq("Train"), col].dropna()
@@ -364,20 +366,21 @@ def hist_plot(df, mers_col = "pIC50 (MERS-CoV Mpro)", sars_col = "pIC50 (SARS-Co
         all_vals = pd.concat([train, test], ignore_index=True)
         bins = np.histogram_bin_edges(all_vals, bins=20)
 
-        ax.hist(train, bins=bins, alpha=0.6, label=f"Train (n = {len(train)})", density=True, color = train_color, edgecolor="black", linewidth=0.8)
-        ax.hist(test,  bins=bins, alpha=0.6, label=f"Test (n = {len(test)})", density=True, color = test_color, edgecolor="black", linewidth=0.8)
+        ax.hist(train, bins=bins, label=f"Train (n = {len(train)})", density=True, color = train_color, edgecolor="black", linewidth=0.8)
+        ax.hist(test,  bins=bins, label=f"Test (n = {len(test)})", density=True, color = test_color, edgecolor="black", linewidth=0.8)
 
-        # KDE curves
-        x_min = np.min(np.r_[train, test])
-        x_max = np.max(np.r_[train, test])
-        x = np.linspace(x_min, x_max, 400)
+        '''
+                # KDE curves
+                x_min = np.min(np.r_[train, test])
+                x_max = np.max(np.r_[train, test])
+                x = np.linspace(x_min, x_max, 400)
 
-        kde_train = gaussian_kde(train)  # you can tune bandwidth; see below
-        kde_test  = gaussian_kde(test)
+                kde_train = gaussian_kde(train) 
+                kde_test  = gaussian_kde(test)
 
-        ax.plot(x, kde_train(x), linewidth=1, color = train_color)
-        ax.plot(x, kde_test(x),  linewidth=1, color = test_color)
-
+                ax.plot(x, kde_train(x), linewidth=1, color = '#7920d3')
+                ax.plot(x, kde_test(x),  linewidth=1, color = '#e69f00')
+        '''
         ax.set_title(f"pIC50 distribution: {title}")
         ax.set_ylabel("Density")
         ax.legend()
@@ -390,7 +393,8 @@ def hist_plot(df, mers_col = "pIC50 (MERS-CoV Mpro)", sars_col = "pIC50 (SARS-Co
         vert=False,
         labels=["Train", "Test"],
         patch_artist=True,
-        showfliers=False)
+        showfliers=False, 
+        widths = 0.6)
 
         for key in ["boxes", "whiskers", "caps", "medians"]:
             for artist in bp[key]:
@@ -399,14 +403,13 @@ def hist_plot(df, mers_col = "pIC50 (MERS-CoV Mpro)", sars_col = "pIC50 (SARS-Co
 
         if train_color is not None:
             bp["boxes"][0].set_facecolor(train_color)
-            bp["boxes"][0].set_alpha(0.5)
         if test_color is not None:
             bp["boxes"][1].set_facecolor(test_color)
-            bp["boxes"][1].set_alpha(0.5)
 
         ax_box.set_xlabel("pIC50")
         ax_box.set_yticks([1, 2])
         ax_box.set_yticklabels(["Train", "Test"])
+        ax_box.invert_yaxis()
 
     plt.tight_layout()
     plt.show()
@@ -416,7 +419,7 @@ def scatter_plot(y_test, pred, save_to=None, title: str = None):
     mae  = mean_absolute_error(y_test, pred)
     r2   = r2_score(y_test, pred)
 
-    plt.scatter(y_test, pred, marker = 'o', color='#7920d3', edgecolors='black', linewidths=0.5)
+    plt.scatter(y_test, pred, marker = 'o', color='#7920d3bb', edgecolors='black', linewidths=0.5)
 
     lims = [
         min(min(y_test), min(pred)),  # min of both axes
@@ -443,20 +446,22 @@ def scatter_plot(y_test, pred, save_to=None, title: str = None):
 def bar_plot(mers_results: pd.DataFrame, sars_results: pd.DataFrame, save_to: str = None):
     fig, axes = plt.subplots(2, 2, figsize = (10, 6), constrained_layout = True)
 
-    sns.barplot(data = mers_results, x = "scheme", y="r2", hue="model",palette = ["#7920d3",'#e69f00'],
-                errorbar = 'sd', ax = axes[0, 0], edgecolor = 'black', linewidth=1, alpha=0.8, err_kws={"linewidth": 0.8},
+    palette = ["#7920d3bb",'#e69f00bb']
+
+    sns.barplot(data = mers_results, x = "scheme", y="r2", hue="model",palette = palette,
+                errorbar = 'sd', ax = axes[0, 0], edgecolor = 'black', linewidth=1, err_kws={"linewidth": 0.8},
                 capsize=0.2)
 
-    sns.barplot(data = mers_results, x = "scheme", y="mae", hue="model",palette = ["#7920d3",'#e69f00'], 
-                errorbar = 'sd', ax = axes[1,0], edgecolor = 'black', linewidth=1, alpha=0.8, err_kws={"linewidth": 0.8},
+    sns.barplot(data = mers_results, x = "scheme", y="mae", hue="model",palette = palette, 
+                errorbar = 'sd', ax = axes[1,0], edgecolor = 'black', linewidth=1, err_kws={"linewidth": 0.8},
                 capsize=0.2)
 
-    sns.barplot(data = sars_results, x = "scheme", y="r2", hue="model",palette = ["#7920d3",'#e69f00'], 
-                errorbar = 'sd', ax = axes[0, 1], edgecolor = 'black', linewidth=1, alpha=0.8, err_kws={"linewidth": 0.8},
+    sns.barplot(data = sars_results, x = "scheme", y="r2", hue="model",palette = palette, 
+                errorbar = 'sd', ax = axes[0, 1], edgecolor = 'black', linewidth=1, err_kws={"linewidth": 0.8},
                 capsize=0.2)
 
-    sns.barplot(data = sars_results, x = "scheme", y="mae", hue="model",palette = ["#7920d3",'#e69f00'], 
-                errorbar = 'sd', ax = axes[1,1], edgecolor = 'black', linewidth=1, alpha=0.8, err_kws={"linewidth": 0.8},
+    sns.barplot(data = sars_results, x = "scheme", y="mae", hue="model",palette = palette, 
+                errorbar = 'sd', ax = axes[1,1], edgecolor = 'black', linewidth=1, err_kws={"linewidth": 0.8},
                 capsize=0.2)
 
     axes[0, 0].set_title("pIC50 MERS: CV R²")
@@ -468,16 +473,35 @@ def bar_plot(mers_results: pd.DataFrame, sars_results: pd.DataFrame, save_to: st
         ax.set_xlabel("")
         ax.tick_params(axis="x")
 
-    handles, labels = axes[0, 0].get_legend_handles_labels()
     for ax in axes.flat:
         leg = ax.get_legend()
         if leg is not None:
             leg.remove()
 
-
-    fig.legend(handles, labels, title="Model", loc=(0.95,0.8))
-
     if save_to:
         plt.savefig(f"{save_to}")
 
+    plt.show()
+
+def feature_report(report, title = None):
+    df = pd.DataFrame(report)
+
+    
+    df["F-Score"] = df["F-Score"].astype(float)
+    df["p-value"] = df["p-value"].astype(float)
+
+    
+    df = df.sort_values("F-Score", ascending=False)
+
+    colors = ['#7920d3bb']*len(df)
+    
+    fig, ax = plt.subplots(figsize=(6, max(4, 0.2 * len(df))))
+    ax.barh(df["Descriptor"], df["F-Score"], edgecolor='black', linewidth=0.8, color = colors)
+    ax.invert_yaxis()
+
+    ax.set_xlabel("F-Score")
+    ax.set_ylabel("Descriptor")
+    if title:
+        ax.set_title(title)
+    plt.tight_layout()
     plt.show()
