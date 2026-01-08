@@ -447,7 +447,8 @@ def test_model(X_train, X_test, y_train, y_test, model = "xgboost", endpoint_sca
 #------------------------------------
 
 
-def hist_plot(df: pd.DataFrame, mers_col: str = "pIC50 (MERS-CoV Mpro)", sars_col: str = "pIC50 (SARS-CoV-2 Mpro)", kde: bool = False):
+def hist_plot(df: pd.DataFrame, mers_col: str = "pIC50 (MERS-CoV Mpro)", sars_col: str = "pIC50 (SARS-CoV-2 Mpro)",
+              kde: bool = False, save_to: str = None):
     '''
     Pair of histograms (with boxplots) for MERS and SARS pIC50 endpoints.
 
@@ -457,6 +458,7 @@ def hist_plot(df: pd.DataFrame, mers_col: str = "pIC50 (MERS-CoV Mpro)", sars_co
     mers_col: str, df column containing MERS pIC50 values
     sars_col: str, df column containing SARS pIC50 values
     kde: bool, whether to display estimated distribution curves
+    save_to: path to save figure
     '''
 
     train_color = '#7920d3bb'
@@ -529,6 +531,8 @@ def hist_plot(df: pd.DataFrame, mers_col: str = "pIC50 (MERS-CoV Mpro)", sars_co
         ax_box.invert_yaxis()
 
     plt.tight_layout()
+    if save_to:
+        plt.savefig(save_to)
     plt.show()
 
 def scatter_plot(y_test, pred, save_to: str = None, title: str = None):
@@ -539,7 +543,7 @@ def scatter_plot(y_test, pred, save_to: str = None, title: str = None):
     ----------
     y_test: array-like, experimental pIC50 values
     pred: array-like, predicted pIC50 values
-    save_to: str, path to where figure will be saved
+    save_to: str, path to figure destination
     '''
     mse = mean_squared_error(y_test, pred)
     mae  = mean_absolute_error(y_test, pred)
@@ -578,7 +582,7 @@ def bar_plot(mers_results: pd.DataFrame, sars_results: pd.DataFrame, save_to: st
     ----------
     mers_results: pd.DataFrame, results from MERS CV, df with headers "scheme", "model", "r2", and "mae" 
     sars_results: pd.DataFrame, results from SARS CV, df with headers "scheme", "model", "r2", and "mae"
-    save_to: str, path to where figure will be saved
+    save_to: str, path to figure destination
     '''
 
     fig, axes = plt.subplots(2, 2, figsize = (10, 6), constrained_layout = True, sharey = "row")
