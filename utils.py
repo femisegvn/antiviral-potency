@@ -18,7 +18,7 @@ plt.rcParams["font.family"] = "Arial"
 # DATA CLEANING
 #------------------------------------
 
-def canonicalise_smiles(smiles):
+def canonicalise_smiles(smiles) -> list:
     '''
     Converts (CX)SMILES into `rdkit.mol` object and back into (CX)SMILES
 
@@ -28,21 +28,21 @@ def canonicalise_smiles(smiles):
 
     Returns
     ----------
-    smiles: array-like, list of canonicalised smiles
+    smiles: list, list of canonicalised smiles
     '''
     mols = [Chem.MolFromSmiles(s) for s in smiles]
     smiles = [Chem.MolToCXSmiles(m) for m in mols]
     return smiles
 
-def train_test_overlap(df, smiles_col="CXSMILES"):
+def train_test_overlap(df: pd.DataFrame, smiles_col: str = "CXSMILES") -> set:
     '''
-    Identifies instances of train-test overlap -- where CXSMILES in the training set also appear
+    Identifies instances of train-test overlap: where CXSMILES in the training set also appear
     in the test set 
 
     Arguments
     ----------
     df: pd.DataFrame, input df containing both train and test data
-    smiles_col: str, name of df column name containing SMILES, default == "CXSMILES"
+    smiles_col: str, name of df column name containing SMILES
 
     Returns
     -------
@@ -59,19 +59,15 @@ def train_test_overlap(df, smiles_col="CXSMILES"):
     return overlap
 
 
-def merge_duplicates(df, smiles_col = "CXSMILES",
-                     pic50_cols = ("pIC50 (MERS-CoV Mpro)", "pIC50 (SARS-CoV-2 Mpro)")):
+def merge_duplicates(df: pd.DataFrame, smiles_col: str = "CXSMILES",
+                     pic50_cols: tuple[str] = ("pIC50 (MERS-CoV Mpro)", "pIC50 (SARS-CoV-2 Mpro)")) -> pd.DataFrame:
     """
-    Merge duplicate CXSMILES into a single row per unique CXSMILES.
-
-    - For pIC50 columns: uses the mean across duplicates (NaNs ignored).
-    - For all other columns: keeps the first (or last) non-null value within the group.
-      If values conflict, the chosen `keep` strategy applies.
+    Finds the mean pIC50s of duplicate CXSMILES entries and mergesinto a single row per unique CXSMILES.
 
     Arguments
     ----------
     df: pd.DataFrame, input df to be cleaned
-    smiles_col: str, name of df column name containing SMILES, default == "CXSMILES"
+    smiles_col: str, name of df column name containing SMILES
     pic50_cols: tuple of str, name of columns containing numeric values to be merged
 
     Returns
@@ -79,7 +75,7 @@ def merge_duplicates(df, smiles_col = "CXSMILES",
     df: pd.DataFrame, cleaned df with no duplicate strings and merged data
     """
 
-    # Identify "other" columns to carry through (e.g., Molecule Name, Set, etc.)
+    # list of all df columns that aren't SMILES or pIC50 values
     other_cols = [c for c in df.columns if c != smiles_col and c not in pic50_cols]
 
     def _pick_non_null(series):
@@ -88,7 +84,7 @@ def merge_duplicates(df, smiles_col = "CXSMILES",
 
     agg = {}
 
-    # Mean for pIC50 columns (NaNs ignored by default)
+    #aggregate based on mean of IC50 measurements
     for c in pic50_cols:
         agg[c] = "mean"
 
@@ -105,8 +101,13 @@ def merge_duplicates(df, smiles_col = "CXSMILES",
 # MODEL DEVELOPMENT
 #------------------------------------
 
-def get_desc_names():
-    
+def get_desc_names() -> list:
+    '''
+    Returns
+    --------
+    descriptors: list of str, names of non-fragment RDKit Descriptors
+    '''
+
     s = 'C'
     mol = Chem.MolFromSmiles(s)
 
@@ -118,7 +119,12 @@ def get_desc_names():
 
     return descriptors
 
-def get_frag_names():
+def get_frag_names() -> list:
+    '''
+    Returns
+    --------
+    fragments: list of str, names of RDKit fragments
+    '''
     '''
     s = 'C'
     mol = Chem.MolFromSmiles(s)
@@ -147,26 +153,56 @@ def get_frag_names():
 
     return fragments
 
-def rdkit_all_desc_featuriser(mols):
+def rdkit_all_desc_featuriser(mols) -> np.array:
+    '''
+    Featurises molecules using all available RDKit descriptors, except fragment-based descriptors
+
+    Arguments
+    ---------
+    mols: array-like, list of rdkit Mol objects to featurise
+    
+    Returns
+    ---------
+    X: np.array, array of feature vectors corresponding to the molecules passed in
+    '''
+
     X = []
     for mol in mols:
         x = []
-        descriptors = Descriptors.CalcMolDescriptors(mol)
 
-        for desc in descriptors.items():
-            key, value = desc
+        descriptors = Descriptors.CalcMolDescriptors(mol)
+        for key, value in descriptors.items():
 
             if not key.startswith("fr"):
                 x.append(value)
+
         X.append(np.array(x))
     X = np.array(X)
     return X
 
-def featurise(mols, scheme="morgan_fp", omit=None):
+def featurise(mols, scheme: str = "morgan_fp", omit: str = None) -> np.array:
+    '''
+    Featurises molecules using a method of choice.
+
+    Arguments
+    ---------
+    mols: array-like, list of rdkit Mol objects to featurise
+    scheme: str, featurisation method to use, options; ["morgan_fp", "rdkit_desc", "rdkit_frags", "hybrid"]
+    omit: str, featurisation method to omit when using "hybrid", options; ["morgan_fp", "rdkit_desc", "rdkit_frags"]
+
+    Returns
+    ---------
+    X: np.array, array of feature vectors corresponding to the molecules passed in
+    '''
 
     mols = [Chem.AddHs(mol) for mol in mols]
 
     def morgan_featuriser(mols, n_bits = 1024, radius = 3):
+        '''
+        Converts molecules into binary fingerprints using the Morgan circular fingerprint algorithm.
+        n_bits: int, bit vector length
+        radius: int, number of bonds to consider in atom neighbourhood 
+        '''
         morgan_gen = rdFingerprintGenerator.GetMorganGenerator(radius = radius, fpSize = n_bits, includeChirality = True)
 
         X = np.zeros((len(mols), n_bits), dtype=np.float32)
@@ -178,6 +214,11 @@ def featurise(mols, scheme="morgan_fp", omit=None):
         return X
     
     def rdkit_desc_featuriser(mols):
+        '''
+        Calculates 11 RDKit descriptors for each molecule, which have been selected using an F-test.
+        See `select_features` and `main.ipynb` for report.
+        '''
+
         X = []
 
         for mol in mols:
@@ -202,6 +243,10 @@ def featurise(mols, scheme="morgan_fp", omit=None):
         return X
     
     def rdkit_frags_featuriser(mols):
+        '''
+        Produces a one-hot encoded feature vector, counting the presence of molecule fragments
+        in each molecule.
+        '''
         X = []
         fragments = get_frag_names()
         
@@ -217,6 +262,10 @@ def featurise(mols, scheme="morgan_fp", omit=None):
         return X
 
     def hybrid_featuriser(mols, omit=omit):
+        '''
+        Combines feature vectors produced from `morgan_featuriser`, `rdkit_desc_featuriser`, and
+        `rdkit_frags_featuriser`. A particular method can be left out, specified by `omit`.
+        '''
         Xs = []
 
         if not omit == "morgan":
@@ -236,25 +285,34 @@ def featurise(mols, scheme="morgan_fp", omit=None):
         return X_hybrid
 
     if scheme == "morgan_fp":
-        X = morgan_featuriser(mols)
+        return morgan_featuriser(mols)
 
     elif scheme == "rdkit_desc":
-        X = rdkit_desc_featuriser(mols)
+        return rdkit_desc_featuriser(mols)
 
     elif scheme == "rdkit_frags":
-        X = rdkit_frags_featuriser(mols)
+        return rdkit_frags_featuriser(mols)
 
     elif scheme == "hybrid":
-        X = hybrid_featuriser(mols)
-
-    return X
+        return hybrid_featuriser(mols)
 
 
-def select_features(X, y, k = 30):
+def select_features(X, y, k = 30) -> tuple[np.array, list[dict]]:
     '''
-    Selects k most relevant features in X linked to y
+    Selects k most relevant features in X linked to y, using `sklearn.feature_selection.f_regression`
+
+    Arguments
+    ---------
+    X: array-like, feature matrix of rdkit descriptors of shape (n_samples, n_features) 
+    y: array-like, target values of shape (n_samples,)
+
+    Returns
+    ---------
+    X_sel: np.array, reduced feature matrix of k most significant rdkit descriptors
+    selection_report: list of dict, report of F-statistic and p-values for all seleted descriptors
     '''
-    selector = SelectKBest(f_regression, k = 30)
+
+    selector = SelectKBest(f_regression, k = k)
     selector.fit_transform(X, y)
 
     X_sel = selector.transform(X)
@@ -278,12 +336,30 @@ def select_features(X, y, k = 30):
 
 
 
-def cross_validation(X, y, model = "xgboost", endpoint_scaler = None, verbose = False):
+def cross_validation(X, y, model: str = "xgboost", endpoint_scaler = None, verbose: bool = False) -> list[dict]:
     '''
     Conducts a 5x5 CV protocol on inputs X and y
+    5x5 CV:
+    1. splits dataset into 5 equally sized, randomly arranged chunks
+    2. evaluates performance with 4 chunks as training data, and 5th chunk as test data
+    3. Repeat step 2 with a different chunk as test data each time
+    4. Repeat steps 1-3 up to 5 iterations with a new random split each iteration.
+
+    i.e. 5-fold cross validation, 5 times
+
+    Arguments
+    ----------
+    X: array-like, feature matrix of shape (n_samples, n_features)
+    y: array-like, vector containing target endpoints of shape (n_samples,)
+    endpoint_scaler: scaler from sklearn.preprocessing, scaler used to transform y datapoints (so it can be reversed)
+    verbose: bool, whether or not to print CV metrics when complete
+
+    Returns
+    ---------
+    fold_metrics: list of dict, report of validation metrics from each fold
     '''
 
-    rkf = RepeatedKFold(n_splits = 5, n_repeats = 5, random_state = 0)
+    rkf = RepeatedKFold(n_splits = 5, n_repeats = 5, random_state = 0) #random_state = 0 for reproducibility
 
     fold_metrics = []
 
@@ -305,7 +381,6 @@ def cross_validation(X, y, model = "xgboost", endpoint_scaler = None, verbose = 
         
         pred = model.predict(X_test)
         if endpoint_scaler:
-            # inverse the scaler
             pred = endpoint_scaler.inverse_transform(pred.reshape(-1, 1))
             y_test = endpoint_scaler.inverse_transform(y_test.reshape(-1, 1))
         
@@ -329,7 +404,22 @@ def cross_validation(X, y, model = "xgboost", endpoint_scaler = None, verbose = 
     return fold_metrics
 
 
-def test_model(X_train, X_test, y_train, y_test, model = "xgboost", endpoint_scaler=None):
+def test_model(X_train, X_test, y_train, y_test, model = "xgboost", endpoint_scaler=None) -> tuple[np.array]:
+    '''
+    Trains and tests a model on pre-split train and test data
+
+    Arguments
+    ---------
+    X_train: array-like, Training data feature matrix
+    X_test: array-like, Test data feature matrix
+    y_train: array-like, Training data target values
+    y_test: array-like, Test data target values
+
+    Returns
+    ---------
+    test: np.array, Test data target values (identical to y_test unless scaled)
+    pred: np.array, Test data predicted values
+    '''
 
     feature_scaler = MaxAbsScaler()
     X_train = feature_scaler.fit_transform(X_train)
@@ -357,7 +447,17 @@ def test_model(X_train, X_test, y_train, y_test, model = "xgboost", endpoint_sca
 #------------------------------------
 
 
-def hist_plot(df, mers_col = "pIC50 (MERS-CoV Mpro)", sars_col = "pIC50 (SARS-CoV-2 Mpro)"):
+def hist_plot(df: pd.DataFrame, mers_col: str = "pIC50 (MERS-CoV Mpro)", sars_col: str = "pIC50 (SARS-CoV-2 Mpro)", kde: bool = False):
+    '''
+    Pair of histograms (with boxplots) for MERS and SARS pIC50 endpoints.
+
+    Arguments
+    ----------
+    df: pd.DataFrame, dataframe containing SARS and MERS pIC50 values
+    mers_col: str, df column containing MERS pIC50 values
+    sars_col: str, df column containing SARS pIC50 values
+    kde: bool, whether to display estimated distribution curves
+    '''
 
     train_color = '#7920d3bb'
     test_color = '#e69f00bb'
@@ -387,18 +487,17 @@ def hist_plot(df, mers_col = "pIC50 (MERS-CoV Mpro)", sars_col = "pIC50 (SARS-Co
         ax.hist(train, bins=bins, label=f"Train (n = {len(train)})", density=True, color = train_color, edgecolor="black", linewidth=0.8)
         ax.hist(test,  bins=bins, label=f"Test (n = {len(test)})", density=True, color = test_color, edgecolor="black", linewidth=0.8)
 
-        '''
-                # KDE curves
-                x_min = np.min(np.r_[train, test])
-                x_max = np.max(np.r_[train, test])
-                x = np.linspace(x_min, x_max, 400)
+        if kde:
+            x_min = np.min(np.r_[train, test])
+            x_max = np.max(np.r_[train, test])
+            x = np.linspace(x_min, x_max, 400)
 
-                kde_train = gaussian_kde(train) 
-                kde_test  = gaussian_kde(test)
+            kde_train = gaussian_kde(train) 
+            kde_test  = gaussian_kde(test)
 
-                ax.plot(x, kde_train(x), linewidth=1, color = '#7920d3')
-                ax.plot(x, kde_test(x),  linewidth=1, color = '#e69f00')
-        '''
+            ax.plot(x, kde_train(x), linewidth=1, color = '#7920d3')
+            ax.plot(x, kde_test(x),  linewidth=1, color = '#e69f00')
+        
         ax.set_title(f"pIC50 distribution: {title}")
         ax.set_ylabel("Density")
         ax.legend()
@@ -432,7 +531,16 @@ def hist_plot(df, mers_col = "pIC50 (MERS-CoV Mpro)", sars_col = "pIC50 (SARS-Co
     plt.tight_layout()
     plt.show()
 
-def scatter_plot(y_test, pred, save_to=None, title: str = None):
+def scatter_plot(y_test, pred, save_to: str = None, title: str = None):
+    '''
+    Produces a scatter plot of experimental pIC50 values (x-axis) and the predicted pIC50 values (y-axis).
+
+    Arguments
+    ----------
+    y_test: array-like, experimental pIC50 values
+    pred: array-like, predicted pIC50 values
+    save_to: str, path to where figure will be saved
+    '''
     mse = mean_squared_error(y_test, pred)
     mae  = mean_absolute_error(y_test, pred)
     r2   = r2_score(y_test, pred)
@@ -462,6 +570,17 @@ def scatter_plot(y_test, pred, save_to=None, title: str = None):
     plt.show()
 
 def bar_plot(mers_results: pd.DataFrame, sars_results: pd.DataFrame, save_to: str = None):
+    '''
+    Bar chart for plotting cross-validation results (R^2 and MAE) from testing multiple models and featurisation
+    methods.
+
+    Arguments
+    ----------
+    mers_results: pd.DataFrame, results from MERS CV, df with headers "scheme", "model", "r2", and "mae" 
+    sars_results: pd.DataFrame, results from SARS CV, df with headers "scheme", "model", "r2", and "mae"
+    save_to: str, path to where figure will be saved
+    '''
+
     fig, axes = plt.subplots(2, 2, figsize = (10, 6), constrained_layout = True, sharey = "row")
 
     palette = ["#7920d3bb",'#e69f00bb']
@@ -507,10 +626,18 @@ def bar_plot(mers_results: pd.DataFrame, sars_results: pd.DataFrame, save_to: st
 
     plt.show()
 
-def feature_report(report, title = None):
+def feature_report(report: list[dict], title: str = None):
+    '''
+    Horizontal barchart, displaying the F-Score of various descriptors, sorted by most significant
+
+    Arguments
+    ----------
+    report: list of dict, contains descriptors and their F-statistics (second output from `select_features`)
+    title: str, figure title
+    '''
+
     df = pd.DataFrame(report)
 
-    
     df["F-Score"] = df["F-Score"].astype(float)
     df["p-value"] = df["p-value"].astype(float)
 
