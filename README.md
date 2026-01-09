@@ -20,7 +20,7 @@ I implemented a 5×5 cross-validation procedure, testing the "out-of-the-box" pe
 
 ![Cross-Validation](images/CV.svg)
 
-I proceeded to conduct hyperameter on XGBoost using the hybrid featurisation method, using the `hypopt` package.
+I proceeded to conduct hyperameter on XGBoost using the hybrid featurisation method, using the `hyperopt` package.
 
 ## Model Performance
 ### MERS
