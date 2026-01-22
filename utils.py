@@ -625,6 +625,15 @@ def bar_plot(mers_results: pd.DataFrame, sars_results: pd.DataFrame, save_to: st
         if leg is not None:
             leg.remove()
 
+    handles, labels = axes[0, 0].get_legend_handles_labels()
+    fig.legend(
+        handles, labels,
+        loc="upper center",          # or "lower center", etc.
+        ncol=len(labels),            # put items on one row
+        frameon=False,
+        bbox_to_anchor=(0.5, 1.02)   # move legend above the subplots
+    )
+
     if save_to:
         plt.savefig(f"{save_to}")
 
